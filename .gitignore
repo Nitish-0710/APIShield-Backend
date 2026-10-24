@@ -1,11 +1,127 @@
+# Environment variables and secrets
 .env
-.venv/
+.env.*
+!.env.example
+.envrc
+
+# Python bytecode
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Packaging and build artifacts
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+
+# Logs and runtime files
+*.log
+*.pid
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Tests and coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+.tox/
+.nox/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+*.lcov
+.hypothesis/
+cover/
+
+# Databases
 *.db
 *.sqlite
 *.sqlite3
+db.sqlite3-journal
+
+# Framework and local application state
+instance/
+.webassets-cache
+.scrapy/
+celerybeat-schedule*
+celerybeat.pid
+mnesia/
+rabbitmq/
+rabbitmq-data/
+activemq-data/
+*.rdb
+*.aof
+
+# Documentation and generated sites
+docs/_build/
+site/
+
+# Jupyter and IPython
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+# Python environment/package managers
+.pdm-python
+.pdm-build/
+.pixi/*
+!.pixi/config.toml
+__pypackages__/
+# Pipfile.lock
+# uv.lock
+# poetry.lock
+# pdm.lock
+
+# Type checking and static analysis
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
 .ruff_cache/
+
+# IDEs
+.spyderproject/
+.spyproject/
+.ropeproject/
+# .idea/
+# .vscode/
+
+# Other tools
+.abstra/
+tempCodeRunnerFile.py
+.pypirc
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+.streamlit/secrets.toml

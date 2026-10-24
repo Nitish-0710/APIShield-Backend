@@ -22,6 +22,8 @@ def utcnow() -> datetime:
 
 class TestResultRecord(Base):
     __tablename__ = "test_results"
+    __test__ = False
+
 
     id: Mapped[str] = mapped_column(
         String(36),
