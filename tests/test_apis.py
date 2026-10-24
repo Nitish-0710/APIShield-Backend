@@ -66,6 +66,48 @@ def test_create_api_unauthenticated(client: TestClient):
     assert resp.status_code == 401
 
 
+def test_create_api_missing_csrf_header_rejected(
+    authenticated_client: TestClient,
+):
+    """Authenticated user attempting API creation without X-CSRF-Token is rejected with 403 CSRF_ERROR."""
+    resp = authenticated_client.post(
+        "/api/v1/apis",
+        json=sample_api_payload(),
+        # headers omitted, so X-CSRF-Token is missing
+    )
+    assert resp.status_code == 403
+    data = resp.json()
+    assert data["error"]["code"] == "CSRF_ERROR"
+    assert "CSRF token" in data["error"]["message"]
+
+
+def test_create_api_invalid_csrf_header_rejected(
+    authenticated_client: TestClient,
+):
+    """Authenticated user with mismatched/invalid X-CSRF-Token header is rejected with 403 CSRF_ERROR."""
+    resp = authenticated_client.post(
+        "/api/v1/apis",
+        json=sample_api_payload(),
+        headers={"X-CSRF-Token": "invalid-tampered-token"},
+    )
+    assert resp.status_code == 403
+    data = resp.json()
+    assert data["error"]["code"] == "CSRF_ERROR"
+
+
+def test_create_api_openapi_documents_csrf_header(client: TestClient):
+    """OpenAPI schema for POST /api/v1/apis explicitly documents X-CSRF-Token header parameter."""
+    resp = client.get("/openapi.json")
+    assert resp.status_code == 200
+    schema = resp.json()
+    post_params = schema["paths"]["/api/v1/apis"]["post"].get("parameters", [])
+    csrf_params = [p for p in post_params if p["name"] == "X-CSRF-Token" and p["in"] == "header"]
+    assert len(csrf_params) == 1
+    assert csrf_params[0]["in"] == "header"
+    assert csrf_params[0]["required"] is False
+
+
+
 def test_list_apis_scoped_to_user(
     authenticated_client: TestClient,
     auth_headers: dict,

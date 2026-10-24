@@ -1,7 +1,8 @@
 import os
 import pytest
 from pydantic import ValidationError
-from app.core.config import Settings, DEFAULT_DEV_SECRET
+from app.core.config import Settings, DEFAULT_DEV_SECRET, DEFAULT_DEV_ENCRYPTION_KEY
+
 
 
 def test_production_rejects_default_dev_secret(monkeypatch):
@@ -67,10 +68,11 @@ def test_production_rejects_default_encryption_key(monkeypatch):
     strong_secret = "c987f2e105d10984a1e948f2a1b94e019f390d4e928a719c8f2b1d0e49f82a17"
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("SECRET_KEY", strong_secret)
-    monkeypatch.delenv("CREDENTIALS_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setenv("CREDENTIALS_ENCRYPTION_KEY", DEFAULT_DEV_ENCRYPTION_KEY)
 
     with pytest.raises(ValidationError) as excinfo:
         Settings()
+
 
     assert "CREDENTIALS_ENCRYPTION_KEY must not use the default development key" in str(excinfo.value)
 

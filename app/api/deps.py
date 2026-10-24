@@ -1,5 +1,5 @@
-from typing import Annotated
-from fastapi import Depends, HTTPException, Request, status
+from typing import Annotated, Optional
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -23,14 +23,24 @@ class AppException(HTTPException):
         self.field_errors = field_errors or {}
 
 
-def verify_csrf(request: Request) -> None:
-    """Dependency that enforces CSRF on state-changing cookie-authenticated requests."""
+def verify_csrf(
+    request: Request,
+    x_csrf_token: Annotated[
+        Optional[str],
+        Header(
+            alias="X-CSRF-Token",
+            description="CSRF token matching the apishield_csrf cookie on state-changing requests",
+        ),
+    ] = None,
+) -> None:
+    """Dependency that enforces CSRF on state-changing cookie-authenticated requests and exposes X-CSRF-Token in OpenAPI/Swagger UI."""
     if not validate_csrf_for_request(request):
         raise AppException(
             status_code=status.HTTP_403_FORBIDDEN,
             code="CSRF_ERROR",
             message="Invalid or missing CSRF token.",
         )
+
 
 
 def enforce_rate_limit(request: Request) -> None:

@@ -85,6 +85,10 @@ def validate_url_syntax_and_scheme(url_str: str) -> urllib.parse.ParseResult:
 
 def is_ip_prohibited(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Check if an IP address falls into any loopback, private, or prohibited range."""
+    # If IPv4-mapped IPv6 address (e.g. ::ffff:127.0.0.1, ::ffff:169.254.169.254), evaluate underlying IPv4
+    if getattr(ip, "ipv4_mapped", None):
+        return is_ip_prohibited(ip.ipv4_mapped)
+
     if (
         ip.is_loopback
         or ip.is_private
@@ -96,10 +100,11 @@ def is_ip_prohibited(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         return True
 
     for net in PROHIBITED_CIDRS:
-        if ip in net:
+        if net.version == ip.version and ip in net:
             return True
 
     return False
+
 
 
 def resolve_and_validate_host(hostname: str, port: int) -> List[str]:
