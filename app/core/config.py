@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # Rate limiting (per minute per IP for sensitive auth operations)
     AUTH_RATE_LIMIT_PER_MINUTE: int = 20
 
+    # Automated Monitoring
+    MONITORING_ENABLED: bool = True
+    MONITORING_TICK_SECONDS: int = 5
+    MONITORING_MAX_CONCURRENCY: int = 10
+
+
     @field_validator("CORS_ORIGINS", mode="after")
     @classmethod
     def assemble_cors_origins(cls, v: Union[List[str], str]) -> List[str]:

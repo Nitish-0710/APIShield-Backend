@@ -106,17 +106,28 @@ class TestService:
     @staticmethod
     def run_saved_api_test(
         db: Session,
-        user: User,
-        api_id: str,
+        user: Optional[User] = None,
+        api_id: str = "",
+        is_automated: bool = False,
     ) -> Optional[TestResultResponse]:
-        """Execute test for a saved API owned by the user, enforce SSRF, and persist history."""
-        stmt = select(ApiEndpoint).where(
-            ApiEndpoint.id == api_id,
-            ApiEndpoint.user_id == user.id,
-        )
+        """Execute test for a saved API, enforce SSRF, and persist history.
+
+        If user is provided, validates ownership.
+        If is_automated is True, omits body and headers from persistent storage to minimize overhead and data leakage.
+        """
+        if user is not None:
+            stmt = select(ApiEndpoint).where(
+                ApiEndpoint.id == api_id,
+                ApiEndpoint.user_id == user.id,
+            )
+        else:
+            stmt = select(ApiEndpoint).where(ApiEndpoint.id == api_id)
+
         api = db.scalar(stmt)
         if not api:
             return None
+
+        target_user_id = user.id if user is not None else api.user_id
 
         # Build request headers
         req_headers: Dict[str, str] = {}
@@ -214,17 +225,21 @@ class TestService:
         # Sanitize headers for persistent storage
         masked_headers = mask_sensitive_headers(resp_headers)
 
+        # For automated background monitoring, avoid storing body or headers to prevent bloat and sensitive data leakage
+        stored_headers = [] if is_automated else [h.model_dump() for h in masked_headers]
+        stored_body = "" if is_automated else resp_body
+
         # Persist test result record
         record = TestResultRecord(
             api_id=api.id,
-            user_id=user.id,
+            user_id=target_user_id,
             passed=passed,
             outcome=outcome,
             status_code=status_code,
             expected_status=api.expected_status,
             latency_ms=latency_ms,
-            headers=[h.model_dump() for h in masked_headers],
-            body=resp_body,
+            headers=stored_headers,
+            body=stored_body,
             validations=[v.model_dump() for v in validations],
             error=error_msg,
             tested_at=tested_at_dt,

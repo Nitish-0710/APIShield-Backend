@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
@@ -23,6 +24,11 @@ def utcnow() -> datetime:
 class TestResultRecord(Base):
     __tablename__ = "test_results"
     __test__ = False
+
+    __table_args__ = (
+        Index("ix_test_results_api_tested_at", "api_id", "tested_at"),
+        Index("ix_test_results_user_tested_at", "user_id", "tested_at"),
+    )
 
 
     id: Mapped[str] = mapped_column(

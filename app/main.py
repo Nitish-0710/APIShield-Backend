@@ -11,13 +11,18 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import logger
 from app.core.middleware import RequestIdMiddleware
+from app.services.monitoring_service import monitoring_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION} [{settings.ENVIRONMENT}]")
+    if settings.MONITORING_ENABLED and settings.ENVIRONMENT != "testing":
+        monitoring_service.start()
     yield
     logger.info(f"Shutting down {settings.PROJECT_NAME}")
+    if settings.MONITORING_ENABLED and settings.ENVIRONMENT != "testing":
+        await monitoring_service.stop()
 
 
 app = FastAPI(

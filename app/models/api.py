@@ -131,6 +131,17 @@ class ApiEndpoint(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    is_probing: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
     risk: Mapped[str] = mapped_column(
         String(20),
         default="unknown",
