@@ -72,4 +72,23 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    predictions = relationship(
+        "PredictionRecord",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    alerts = relationship(
+        "AlertRecord",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    app_settings = relationship(
+        "SettingRecord",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 

@@ -171,3 +171,15 @@ class ApiEndpoint(Base):
         cascade="all, delete-orphan",
         order_by="desc(TestResultRecord.tested_at)",
     )
+    predictions = relationship(
+        "PredictionRecord",
+        back_populates="api_endpoint",
+        cascade="all, delete-orphan",
+        order_by="desc(PredictionRecord.created_at)",
+    )
+    alerts = relationship(
+        "AlertRecord",
+        back_populates="api_endpoint",
+        cascade="all, delete-orphan",
+        order_by="desc(AlertRecord.created_at)",
+    )

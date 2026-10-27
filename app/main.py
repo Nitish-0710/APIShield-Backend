@@ -11,6 +11,11 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import logger
 from app.core.middleware import RequestIdMiddleware
+from app.core.metrics import (
+    PrometheusMiddleware,
+    SCHEDULER_RUNNING,
+    get_prometheus_metrics_response,
+)
 from app.services.monitoring_service import monitoring_service
 
 
@@ -19,10 +24,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION} [{settings.ENVIRONMENT}]")
     if settings.MONITORING_ENABLED and settings.ENVIRONMENT != "testing":
         monitoring_service.start()
+        SCHEDULER_RUNNING.set(1)
     yield
     logger.info(f"Shutting down {settings.PROJECT_NAME}")
     if settings.MONITORING_ENABLED and settings.ENVIRONMENT != "testing":
         await monitoring_service.stop()
+        SCHEDULER_RUNNING.set(0)
 
 
 app = FastAPI(
@@ -35,6 +42,7 @@ app = FastAPI(
 )
 
 # Global Middlewares
+app.add_middleware(PrometheusMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
 # Explicit CORS allowlist - Never wildcard with credentials
@@ -109,6 +117,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             }
         },
     )
+
+
+# Prometheus Metrics endpoint
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics():
+    return get_prometheus_metrics_response()
 
 
 # Root health endpoints

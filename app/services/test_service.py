@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.metrics import API_TESTS_TOTAL, API_TEST_DURATION_SECONDS, API_TIMEOUTS_TOTAL
 from app.core.security import decrypt_credential
 from app.core.ssrf import SSRFProtectionError, execute_safe_request
 from app.models.api import ApiEndpoint
@@ -211,6 +212,15 @@ class TestService:
                 )
             ]
 
+        try:
+            API_TESTS_TOTAL.labels(outcome=outcome).inc()
+            if latency_ms is not None:
+                API_TEST_DURATION_SECONDS.observe(latency_ms / 1000.0)
+            if outcome == "timeout":
+                API_TIMEOUTS_TOTAL.inc()
+        except Exception:
+            pass
+
         # Update API telemetry & health status
         api.last_status_code = status_code
         api.last_latency_ms = latency_ms
@@ -248,6 +258,23 @@ class TestService:
         db.add(record)
         db.commit()
         db.refresh(record)
+
+        # For automated background monitoring probes, evaluate failure conditions and threshold breaches
+        if is_automated:
+            try:
+                TestService._evaluate_and_create_alert(
+                    db=db,
+                    api=api,
+                    user_id=target_user_id,
+                    passed=passed,
+                    outcome=outcome,
+                    status_code=status_code,
+                    latency_ms=latency_ms,
+                    error_msg=error_msg,
+                )
+            except Exception as alert_exc:
+                from app.core.logging import logger
+                logger.warning(f"Failed to process automated monitoring alert for API {api.id}: {alert_exc}")
 
         return TestResultResponse(
             id=record.id,
@@ -350,6 +377,15 @@ class TestService:
                 )
             ]
 
+        try:
+            API_TESTS_TOTAL.labels(outcome=outcome).inc()
+            if latency_ms is not None:
+                API_TEST_DURATION_SECONDS.observe(latency_ms / 1000.0)
+            if outcome == "timeout":
+                API_TIMEOUTS_TOTAL.inc()
+        except Exception:
+            pass
+
         masked_headers = mask_sensitive_headers(resp_headers)
 
         record = TestResultRecord(
@@ -445,3 +481,107 @@ class TestService:
             )
             for r in records
         ]
+
+    @staticmethod
+    def _evaluate_and_create_alert(
+        db: Session,
+        api: ApiEndpoint,
+        user_id: str,
+        passed: bool,
+        outcome: str,
+        status_code: Optional[int],
+        latency_ms: Optional[float],
+        error_msg: Optional[str],
+    ) -> None:
+        """Evaluate automated monitoring probe outcomes and create alerts with deduplication."""
+        from app.models.ml import SettingRecord
+        from app.services.alert_service import AlertService
+
+        # 1. Determine user-configured cooldown (defaults to 15 min if not configured)
+        cooldown_minutes = 15
+        user_setting = db.query(SettingRecord).filter(SettingRecord.user_id == user_id).first()
+        if user_setting and user_setting.settings:
+            cooldown_minutes = user_setting.settings.get("alert_cooldown_minutes", 15)
+
+        alert_service = AlertService()
+
+        # 2. Check for probe failure conditions
+        if not passed:
+            if outcome == "timeout":
+                alert_service.create_alert_if_due(
+                    db=db,
+                    user_id=user_id,
+                    api_id=api.id,
+                    title=f"Endpoint Timeout: {api.name}",
+                    description=error_msg or f"Automated probe timed out after {api.timeout_ms}ms",
+                    severity="critical",
+                    source="monitoring",
+                    condition_key="probe_timeout",
+                    cooldown_minutes=cooldown_minutes,
+                )
+            elif outcome == "error":
+                alert_service.create_alert_if_due(
+                    db=db,
+                    user_id=user_id,
+                    api_id=api.id,
+                    title=f"Connection Failure: {api.name}",
+                    description=error_msg or "Automated probe failed with a network or connection error",
+                    severity="critical",
+                    source="monitoring",
+                    condition_key="probe_error",
+                    cooldown_minutes=cooldown_minutes,
+                )
+            else:  # outcome == "failure"
+                if status_code is not None and status_code >= 500:
+                    alert_service.create_alert_if_due(
+                        db=db,
+                        user_id=user_id,
+                        api_id=api.id,
+                        title=f"Server Error (HTTP {status_code}): {api.name}",
+                        description=f"Automated probe received HTTP {status_code}, expected {api.expected_status}",
+                        severity="critical",
+                        source="monitoring",
+                        condition_key=f"http_{status_code}",
+                        cooldown_minutes=cooldown_minutes,
+                    )
+                elif status_code is not None and status_code != api.expected_status:
+                    alert_service.create_alert_if_due(
+                        db=db,
+                        user_id=user_id,
+                        api_id=api.id,
+                        title=f"Unexpected Status (HTTP {status_code}): {api.name}",
+                        description=f"Automated probe received HTTP {status_code}, expected {api.expected_status}",
+                        severity="warning",
+                        source="monitoring",
+                        condition_key=f"unexpected_status_{status_code}",
+                        cooldown_minutes=cooldown_minutes,
+                    )
+                else:
+                    alert_service.create_alert_if_due(
+                        db=db,
+                        user_id=user_id,
+                        api_id=api.id,
+                        title=f"Validation Failure: {api.name}",
+                        description=error_msg or "Automated probe failed custom validation rules or assertions",
+                        severity="warning",
+                        source="monitoring",
+                        condition_key="validation_failure",
+                        cooldown_minutes=cooldown_minutes,
+                    )
+        # 3. Check for threshold breach on passed probes (e.g. latency breach)
+        elif (
+            latency_ms is not None
+            and api.max_latency_ms is not None
+            and latency_ms > float(api.max_latency_ms)
+        ):
+            alert_service.create_alert_if_due(
+                db=db,
+                user_id=user_id,
+                api_id=api.id,
+                title=f"High Latency Alert: {api.name}",
+                description=f"Observed latency of {latency_ms:.1f}ms exceeded configured threshold of {api.max_latency_ms}ms",
+                severity="warning",
+                source="monitoring",
+                condition_key="latency_breached",
+                cooldown_minutes=cooldown_minutes,
+            )

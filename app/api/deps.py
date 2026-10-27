@@ -9,18 +9,7 @@ from app.models.user import User
 from app.services.auth_service import get_user_by_session_token
 
 
-class AppException(HTTPException):
-    def __init__(
-        self,
-        status_code: int,
-        code: str,
-        message: str,
-        field_errors: dict[str, str] | None = None,
-    ):
-        super().__init__(status_code=status_code, detail=message)
-        self.code = code
-        self.message = message
-        self.field_errors = field_errors or {}
+from app.core.errors import AppException
 
 
 def verify_csrf(
@@ -80,3 +69,4 @@ def get_current_user(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DbSession = Annotated[Session, Depends(get_db)]
+CsrfProtect = Annotated[None, Depends(verify_csrf)]

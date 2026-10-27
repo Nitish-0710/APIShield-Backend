@@ -320,3 +320,138 @@ def test_tls_hostname_verification_and_connection_isolation():
     # 2. Connection isolation & zero retries
     transport = SSRFSafeTransport()
     assert transport._pool._retries == 0, "Transport pool must have 0 retries to prevent unvalidated retry SSRF"
+
+
+# ==============================================================================
+# NAT64 / DNS64 (RFC 6052) REGRESSION TESTS
+# ==============================================================================
+
+def test_nat64_public_ipv4_embedded_accepted():
+    """NAT64 addresses embedding public IPv4 addresses must be accepted."""
+    from app.core.ssrf import is_ip_prohibited
+    import ipaddress
+
+    # 64:ff9b::3d3:6ae8 embeds 3.211.106.232 (public AWS IPv4)
+    ip_pub1 = ipaddress.ip_address("64:ff9b::3d3:6ae8")
+    assert not is_ip_prohibited(ip_pub1), "Public IPv4 embedded in NAT64 must not be prohibited"
+
+    # 64:ff9b::5db8:d822 embeds 93.184.216.34 (public example.com IPv4)
+    ip_pub2 = ipaddress.ip_address("64:ff9b::5db8:d822")
+    assert not is_ip_prohibited(ip_pub2), "Public IPv4 embedded in NAT64 must not be prohibited"
+
+    # Direct URL with public NAT64 IPv6
+    parsed = validate_url_syntax_and_scheme("http://[64:ff9b::5db8:d822]/status")
+    ips = resolve_and_validate_host(parsed.hostname, 80)
+    assert "64:ff9b::5db8:d822" in ips
+
+    # DNS resolution returning public NAT64 address
+    def fake_dns(host, port, proto=None):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("64:ff9b::3d3:6ae8", 80, 0, 0))]
+
+    with patch("socket.getaddrinfo", side_effect=fake_dns):
+        resolved = resolve_and_validate_host("nat64-public.example.com", 80)
+        assert "64:ff9b::3d3:6ae8" in resolved
+
+
+def test_nat64_prohibited_ipv4_embedded_rejected():
+    """NAT64 addresses embedding loopback, private, link-local, or CGNAT addresses must be rejected."""
+    from app.core.ssrf import is_ip_prohibited
+    import ipaddress
+
+    prohibited_nat64_cases = [
+        ("64:ff9b::7f00:1", "127.0.0.1 (loopback)"),
+        ("64:ff9b::7f00:2", "127.0.0.2 (loopback)"),
+        ("64:ff9b::a00:1", "10.0.0.1 (RFC 1918 private)"),
+        ("64:ff9b::ac10:1", "172.16.0.1 (RFC 1918 private)"),
+        ("64:ff9b::c0a8:101", "192.168.1.1 (RFC 1918 private)"),
+        ("64:ff9b::a9fe:a9fe", "169.254.169.254 (cloud metadata)"),
+        ("64:ff9b::6440:1", "100.64.0.1 (CGNAT)"),
+        ("64:ff9b::0", "0.0.0.0 (unspecified)"),
+        ("64:ff9b::ffff:ffff", "255.255.255.255 (broadcast)"),
+        ("64:ff9b::e000:1", "224.0.0.1 (multicast)"),
+    ]
+
+    for ip_str, desc in prohibited_nat64_cases:
+        ip = ipaddress.ip_address(ip_str)
+        assert is_ip_prohibited(ip), f"NAT64 embedding {desc} should be prohibited"
+
+        parsed = validate_url_syntax_and_scheme(f"http://[{ip_str}]/admin")
+        with pytest.raises(SSRFProtectionError, match="prohibited"):
+            resolve_and_validate_host(parsed.hostname, 80)
+
+        # Also verify rejection via DNS resolution
+        def fake_dns(host, port, proto=None, target=ip_str):
+            return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (target, 80, 0, 0))]
+
+        with patch("socket.getaddrinfo", side_effect=fake_dns):
+            with pytest.raises(SSRFProtectionError, match="prohibited"):
+                resolve_and_validate_host("nat64-prohibited.example.com", 80)
+
+
+def test_ordinary_public_ipv4_and_ipv6_accepted():
+    """Ordinary public IPv4 and native IPv6 addresses must be accepted."""
+    from app.core.ssrf import is_ip_prohibited
+    import ipaddress
+
+    public_ips = [
+        "93.184.216.34",
+        "104.21.59.19",
+        "2606:2800:220:1:248:1893:25c8:1946",
+        "2606:4700:3037::ac43:a797",
+    ]
+
+    for ip_str in public_ips:
+        ip = ipaddress.ip_address(ip_str)
+        assert not is_ip_prohibited(ip), f"{ip_str} should be allowed as public"
+
+        parsed = validate_url_syntax_and_scheme(f"http://[{ip_str}]/" if ":" in ip_str else f"http://{ip_str}/")
+        ips = resolve_and_validate_host(parsed.hostname, 80)
+        assert ip_str in ips
+
+
+def test_mixed_dns_nat64_answers():
+    """Mixed DNS answers combining public IPv4 with valid NAT64 vs prohibited NAT64."""
+    # Scenario A: Public IPv4 + Public NAT64 IPv6 -> Allowed
+    def dns_valid_mix(host, port, proto=None):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80)),
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("64:ff9b::3d3:6ae8", 80, 0, 0)),
+        ]
+
+    with patch("socket.getaddrinfo", side_effect=dns_valid_mix):
+        resolved = resolve_and_validate_host("valid-dual-stack.example.com", 80)
+        assert "93.184.216.34" in resolved
+        assert "64:ff9b::3d3:6ae8" in resolved
+
+    # Scenario B: Public IPv4 + Prohibited NAT64 (embedding 127.0.0.1) -> Rejected
+    def dns_evil_nat64_mix(host, port, proto=None):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80)),
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("64:ff9b::7f00:1", 80, 0, 0)),
+        ]
+
+    with patch("socket.getaddrinfo", side_effect=dns_evil_nat64_mix):
+        with pytest.raises(SSRFProtectionError, match="prohibited private or link-local range"):
+            resolve_and_validate_host("evil-nat64-mix.example.com", 80)
+
+
+def test_ssrf_safe_backend_multi_ip_fallback():
+    """SSRFSafeBackend falls back to subsequent validated IPs when first route is unreachable."""
+    from app.core.ssrf import SSRFSafeBackend
+
+    backend = SSRFSafeBackend()
+    validated_ips = ["64:ff9b::3d3:6ae8", "34.201.225.204"]
+
+    with patch("app.core.ssrf.resolve_and_validate_host", return_value=validated_ips):
+        with patch("httpcore._backends.sync.SyncBackend.connect_tcp") as mock_connect:
+            # First IP raises network unreachable, second succeeds
+            mock_stream = MagicMock()
+            mock_connect.side_effect = [
+                OSError(101, "Network is unreachable"),
+                mock_stream,
+            ]
+
+            stream = backend.connect_tcp("httpbin.org", 443)
+            assert stream == mock_stream
+            assert backend.validated_ip == "34.201.225.204"
+            assert mock_connect.call_count == 2

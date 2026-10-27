@@ -1,0 +1,152 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Backend Availability and Scheduler Health",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "apishield_app_healthy",
+          "legendFormat": "App Health (1=Healthy)",
+          "refId": "A"
+        },
+        {
+          "expr": "apishield_scheduler_running",
+          "legendFormat": "Scheduler (1=Active)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP Request Throughput (req/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 9, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(apishield_http_requests_total[1m])) by (method, endpoint)",
+          "legendFormat": "{{method}} {{endpoint}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HTTP Error Rates (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 9, "x": 15, "y": 0 },
+      "targets": [
+        {
+          "expr": "(sum(rate(apishield_http_errors_total[1m])) / sum(rate(apishield_http_requests_total[1m])) * 100) or vector(0)",
+          "legendFormat": "Error Rate %",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "HTTP Latency (p50 & p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(apishield_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p95 Latency (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(apishield_http_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p50 Latency (ms)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "API Test Outcomes (success vs failure vs timeout)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "sum(rate(apishield_api_tests_total[1m])) by (outcome)",
+          "legendFormat": "Test {{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "API Monitoring Duration & Timeouts",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 13 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(apishield_api_test_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p95 Probe Latency (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(apishield_api_timeouts_total[1m]))",
+          "legendFormat": "Timeouts/sec",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Prediction & Inference Throughput",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 13 },
+      "targets": [
+        {
+          "expr": "sum(rate(apishield_predictions_total[1m])) by (provenance, risk_level)",
+          "legendFormat": "{{provenance}} [{{risk_level}}]",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Prediction Errors & Failures",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "sum(apishield_prediction_errors_total) or vector(0)",
+          "legendFormat": "Inference Errors Total",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Scheduler Ticks & Job Execution Status",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        {
+          "expr": "sum(rate(apishield_scheduler_jobs_total[5m])) by (status)",
+          "legendFormat": "Job {{status}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["apishield", "mlops", "monitoring"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": { "refresh_intervals": ["5s", "10s", "30s", "1m"] },
+  "timezone": "browser",
+  "title": "APIShield — System & MLOps Platform Overview",
+  "uid": "apishield-overview",
+  "version": 1
+}

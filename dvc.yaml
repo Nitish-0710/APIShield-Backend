@@ -1,0 +1,23 @@
+stages:
+  prepare_dataset:
+    cmd: python -m app.ml.pipeline prepare --dataset-path data/telemetry_dataset.json
+    deps:
+      - app/ml/dataset.py
+      - app/ml/features.py
+      - app/ml/pipeline.py
+    outs:
+      - data/telemetry_dataset.json:
+          cache: true
+
+  train_model:
+    cmd: python -m app.ml.pipeline train --dataset-path data/telemetry_dataset.json
+    deps:
+      - data/telemetry_dataset.json
+      - app/ml/model.py
+      - app/ml/pipeline.py
+      - app/ml/mlflow_tracker.py
+    outs:
+      - artifacts/models/latest_model_meta.json:
+          cache: true
+      - artifacts/models/latest_model.joblib:
+          cache: true

@@ -44,6 +44,9 @@ PROHIBITED_CIDRS = [
     ipaddress.ip_network("2001:db8::/32"),  # Documentation
 ]
 
+# Well-Known Prefix for IPv4/IPv6 translation (NAT64 / DNS64, RFC 6052)
+IPV6_NAT64_WKP = ipaddress.ip_network("64:ff9b::/96")
+
 PROHIBITED_HOSTNAMES = {
     "localhost",
     "metadata.google.internal",
@@ -88,6 +91,12 @@ def is_ip_prohibited(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     # If IPv4-mapped IPv6 address (e.g. ::ffff:127.0.0.1, ::ffff:169.254.169.254), evaluate underlying IPv4
     if getattr(ip, "ipv4_mapped", None):
         return is_ip_prohibited(ip.ipv4_mapped)
+
+    # If IPv4-embedded IPv6 address via NAT64 Well-Known Prefix (64:ff9b::/96, RFC 6052),
+    # extract and recursively evaluate the underlying embedded IPv4 address. Never assume safe.
+    if ip.version == 6 and ip in IPV6_NAT64_WKP:
+        embedded_ipv4 = ipaddress.IPv4Address(ip.packed[-4:])
+        return is_ip_prohibited(embedded_ipv4)
 
     if (
         ip.is_loopback
@@ -167,17 +176,25 @@ class SSRFSafeBackend(SyncBackend):
     ) -> httpcore.NetworkStream:
         # Resolve and validate host to public IP
         valid_ips = resolve_and_validate_host(host, port)
-        # Pin connection directly to the first validated IP
-        target_ip = valid_ips[0]
-        self.validated_ip = target_ip
-        # Connect socket to (target_ip, port). TLS wrap will still use host for SNI / cert check.
-        return super().connect_tcp(
-            target_ip,
-            port,
-            timeout=timeout,
-            local_address=local_address,
-            socket_options=socket_options,
-        )
+        # Attempt connection across validated public IPs in order of resolution (fallback if route unreachable)
+        last_exc: Optional[Exception] = None
+        for target_ip in valid_ips:
+            try:
+                stream = super().connect_tcp(
+                    target_ip,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+                self.validated_ip = target_ip
+                return stream
+            except Exception as exc:
+                last_exc = exc
+
+        if last_exc is not None:
+            raise last_exc
+        raise SSRFProtectionError(f"Unable to connect to any resolved address for '{host}'.")
 
 
 class SSRFSafeTransport(httpx.HTTPTransport):
